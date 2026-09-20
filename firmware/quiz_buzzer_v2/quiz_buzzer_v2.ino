@@ -1,14 +1,16 @@
 /*
   6-Player Quiz Buzzer System — Version B (Ranking System)
-  ESP32 + OLED SSD1306
+  ESP32 + OLED SSD1306 (128x64, I2C)
 
-  Press first  → ranked 1st, buzzer sounds
-  Others press → order recorded (2nd–6th)
-  Host RESET   → clears everything, ready for next question
+  Version B behaviour:
+    - First press  → rank 1, buzzer sounds
+    - Others press → rank 2–6 recorded
+    - OLED shows full ranking live
+    - Host RESET   → clears all, ready for next question
 
-  Libraries:
+  Libraries (install via Arduino Library Manager):
+    Adafruit GFX Library
     Adafruit SSD1306
-    Adafruit GFX
 */
 
 #include <Wire.h>
@@ -16,122 +18,42 @@
 #include <Adafruit_SSD1306.h>
 
 // ── OLED ──────────────────────────────────────────────────────
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET   -1
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+#define SCREEN_WIDTH  128
+#define SCREEN_HEIGHT  64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // ── PINS ──────────────────────────────────────────────────────
-const int PLAYER_PINS[6] = {13, 14, 27, 26, 25, 33};  // Players 1–6
-const int RESET_PIN      = 32;                          // Host reset
-const int BUZZER_PIN     = 23;                          // Active buzzer
+const int playerButtons[6] = {13, 14, 16, 17, 18, 19};  // P1–P6
+const int buzzerPin   = 4;
+const int resetButton = 23;
 
 // ── STATE ─────────────────────────────────────────────────────
-int  rankOrder[6];     // rankOrder[0] = first player to press, etc.
-bool pressed[6];       // has this player pressed?
-int  pressCount = 0;   // how many have pressed so far
-bool roundActive = true;
-
-// ── DEBOUNCE ──────────────────────────────────────────────────
-unsigned long lastDebounce[6] = {0};
-const int DEBOUNCE_MS = 50;
-
-
-// ── DISPLAY: IDLE SCREEN ──────────────────────────────────────
-void showIdle() {
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
-
-  display.setTextSize(1);
-  display.setCursor(15, 0);
-  display.println("Quiz Buzzer System");
-
-  display.drawLine(0, 10, 127, 10, SSD1306_WHITE);
-
-  display.setTextSize(1);
-  display.setCursor(10, 18);
-  display.println("Waiting for players");
-  display.setCursor(20, 32);
-  display.println("Press your button!");
-
-  display.display();
-}
-
-
-// ── DISPLAY: RANKING SCREEN ───────────────────────────────────
-void showRanking() {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-
-  display.setCursor(15, 0);
-  display.println("Quiz Buzzer System");
-  display.drawLine(0, 10, 127, 10, SSD1306_WHITE);
-
-  const char* suffixes[] = {"st", "nd", "rd", "th", "th", "th"};
-
-  for (int i = 0; i < pressCount; i++) {
-    display.setCursor(0, 13 + i * 9);
-    display.print(i + 1);
-    display.print(suffixes[i]);
-    display.print(" : Player ");
-    display.println(rankOrder[i] + 1);
-  }
-
-  display.display();
-}
-
-
-// ── BUZZER: SHORT BEEP ────────────────────────────────────────
-void beep(int ms = 200) {
-  digitalWrite(BUZZER_PIN, HIGH);
-  delay(ms);
-  digitalWrite(BUZZER_PIN, LOW);
-}
-
-
-// ── RESET ────────────────────────────────────────────────────
-void resetRound() {
-  pressCount  = 0;
-  roundActive = true;
-
-  for (int i = 0; i < 6; i++) {
-    pressed[i]      = false;
-    rankOrder[i]    = -1;
-    lastDebounce[i] = 0;
-  }
-
-  // Double beep = reset confirmed
-  beep(100); delay(80); beep(100);
-
-  showIdle();
-  Serial.println("── RESET — Ready for next question ──");
-}
+int  ranking[6]          = {0};
+int  rankCount           = 0;
+unsigned long lastPressTime[6] = {0};
+const unsigned long DEBOUNCE   = 150;
 
 
 // ── SETUP ────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
 
-  // Player buttons + reset
   for (int i = 0; i < 6; i++)
-    pinMode(PLAYER_PINS[i], INPUT_PULLUP);
-  pinMode(RESET_PIN, INPUT_PULLUP);
+    pinMode(playerButtons[i], INPUT_PULLUP);
 
-  // Buzzer
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
+  pinMode(resetButton, INPUT_PULLUP);
+  pinMode(buzzerPin, OUTPUT);
+  digitalWrite(buzzerPin, LOW);
 
-  // OLED
+  Wire.begin(21, 22);   // SDA=21, SCL=22
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("OLED not found — check wiring");
-    while (1);
+    Serial.println("OLED not found — check SDA/SCL wiring");
+    while (true);
   }
+
   display.clearDisplay();
-
-  // Init state
-  resetRound();
-
+  display.setTextColor(SSD1306_WHITE);
+  showReadyScreen();
   Serial.println("Quiz Buzzer System ready.");
 }
 
@@ -139,44 +61,101 @@ void setup() {
 // ── LOOP ─────────────────────────────────────────────────────
 void loop() {
 
-  // ── Host RESET button ──
-  if (digitalRead(RESET_PIN) == LOW) {
-    delay(50);
-    if (digitalRead(RESET_PIN) == LOW) {
-      resetRound();
-      while (digitalRead(RESET_PIN) == LOW) delay(10);
+  // Reset button
+  if (digitalRead(resetButton) == LOW) {
+    delay(30);
+    if (digitalRead(resetButton) == LOW) {
+      resetGame();
+      while (digitalRead(resetButton) == LOW) delay(5);
     }
   }
 
-  // ── Player buttons ──
+  // Player buttons
   for (int i = 0; i < 6; i++) {
-
-    if (pressed[i]) continue;  // already registered this player
-
-    if (digitalRead(PLAYER_PINS[i]) == LOW) {
-
-      // Debounce
-      if (millis() - lastDebounce[i] < DEBOUNCE_MS) continue;
-      lastDebounce[i] = millis();
-
-      // Register press
-      pressed[i]              = true;
-      rankOrder[pressCount]   = i;
-      pressCount++;
-
-      Serial.print("Player ");
-      Serial.print(i + 1);
-      Serial.print(" pressed — ranked ");
-      Serial.println(pressCount);
-
-      // Buzzer only on first press
-      if (pressCount == 1) beep(300);
-
-      // Update display
-      showRanking();
-
-      // Wait for button release
-      while (digitalRead(PLAYER_PINS[i]) == LOW) delay(10);
+    if (digitalRead(playerButtons[i]) == LOW) {
+      unsigned long now = millis();
+      if (now - lastPressTime[i] > DEBOUNCE) {
+        lastPressTime[i] = now;
+        registerPlayer(i + 1);
+        while (digitalRead(playerButtons[i]) == LOW) delay(5);
+      }
     }
   }
+}
+
+
+// ── REGISTER PLAYER ──────────────────────────────────────────
+void registerPlayer(int playerNumber) {
+
+  // Already pressed?
+  for (int i = 0; i < rankCount; i++)
+    if (ranking[i] == playerNumber) return;
+
+  if (rankCount >= 6) return;
+
+  ranking[rankCount] = playerNumber;
+  rankCount++;
+
+  Serial.print("Rank "); Serial.print(rankCount);
+  Serial.print(" = Player "); Serial.println(playerNumber);
+
+  // Buzzer only on first press
+  if (rankCount == 1) {
+    digitalWrite(buzzerPin, HIGH);
+    delay(300);
+    digitalWrite(buzzerPin, LOW);
+  }
+
+  showRanking();
+}
+
+
+// ── READY SCREEN ─────────────────────────────────────────────
+void showReadyScreen() {
+  display.clearDisplay();
+
+  display.setTextSize(2);
+  display.setCursor(10, 5);
+  display.println("QUIZ");
+  display.setCursor(5, 28);
+  display.println("BUZZER");
+
+  display.setTextSize(1);
+  display.setCursor(20, 52);
+  display.println("Press your button!");
+
+  display.display();
+}
+
+
+// ── RANKING SCREEN ───────────────────────────────────────────
+void showRanking() {
+  display.clearDisplay();
+  display.setTextSize(1);
+
+  display.setCursor(25, 0);
+  display.println("QUIZ RANKING");
+  display.drawLine(0, 10, 127, 10, SSD1306_WHITE);
+
+  const char* suffix[] = {"st","nd","rd","th","th","th"};
+
+  for (int i = 0; i < rankCount; i++) {
+    display.setCursor(10, 13 + i * 9);
+    display.print(i + 1);
+    display.print(suffix[i]);
+    display.print(" : PLAYER ");
+    display.print(ranking[i]);
+  }
+
+  display.display();
+}
+
+
+// ── RESET ────────────────────────────────────────────────────
+void resetGame() {
+  rankCount = 0;
+  for (int i = 0; i < 6; i++) { ranking[i] = 0; lastPressTime[i] = 0; }
+  digitalWrite(buzzerPin, LOW);
+  Serial.println("\n── NEW QUESTION ──");
+  showReadyScreen();
 }
