@@ -13,10 +13,10 @@
 | Step | What happens |
 |------|-------------|
 | 1 | Host asks a question |
-| 2 | First player presses → buzzer sounds, ranked **1st** |
-| 3 | Others can still press → order recorded (2nd, 3rd… 6th) |
+| 2 | First player presses → **buzzer sounds**, ranked **1st** |
+| 3 | Others can still press → order recorded (2nd–6th) |
 | 4 | OLED shows full ranking of all 6 players |
-| 5 | Host presses RESET → system clears, ready for next question |
+| 5 | Host presses RESET → clears everything, ready for next question |
 
 ---
 
@@ -24,63 +24,78 @@
 
 | Component | Qty | Note |
 |-----------|-----|------|
-| ESP32 DevKit V1 | 1 | Microcontroller |
+| ESP32 DevKit V1 | 1 | |
 | Push buttons | 7 | 6 players + 1 host reset |
-| OLED Display SSD1306 (128×64) | 1 | I2C, shows ranking |
-| Active buzzer (5V) | 1 | Sounds on first press only |
-| LEDs (optional) | 6 | One per player, colored |
-| Breadboard + jumpers | — | |
+| OLED SSD1306 (128×64, I2C) | 1 | Shows ranking |
+| Active buzzer (3.3V–5V) | 1 | Sounds on first press only |
+| LEDs (optional) | 6 | One per player — Phase 2 |
 
 ---
 
 ## Pin Assignments
 
-| Player | Button Pin |
-|--------|-----------|
-| Player 1 | GPIO 13 |
-| Player 2 | GPIO 14 |
-| Player 3 | GPIO 27 |
-| Player 4 | GPIO 26 |
-| Player 5 | GPIO 25 |
-| Player 6 | GPIO 33 |
-| Host Reset | GPIO 32 |
-| Buzzer | GPIO 23 |
-| OLED SDA | GPIO 21 |
-| OLED SCL | GPIO 22 |
+### Player Buttons → GND (INPUT_PULLUP — no resistors needed)
 
-All player buttons and reset use **INPUT_PULLUP** — connect one side to GPIO, other side to GND. No external resistors needed.
+| Player | GPIO |
+|--------|------|
+| Player 1 | 13 |
+| Player 2 | 14 |
+| Player 3 | 16 |
+| Player 4 | 17 |
+| Player 5 | 18 |
+| Player 6 | 19 |
+| Host Reset | 23 |
+| Buzzer (+) | 4 |
+
+### OLED SSD1306 (I2C)
+
+| OLED | ESP32 |
+|------|-------|
+| VCC | 3.3V |
+| GND | GND |
+| SDA | GPIO 21 |
+| SCL | GPIO 22 |
 
 ---
 
-## OLED Display Output
+## OLED Output
 
 ```
-Quiz Buzzer System
+     QUIZ RANKING
 ──────────────────
-1st : Player 4
-2nd : Player 2
-3rd : Player 6
-4th : Player 1
-5th : Player 5
-6th : Player 3
+1st : PLAYER 4
+2nd : PLAYER 2
+3rd : PLAYER 6
+4th : PLAYER 1
+5th : PLAYER 5
+6th : PLAYER 3
 ```
-
----
-
-## Libraries
-
-Install via Arduino Library Manager:
-- `Adafruit SSD1306`
-- `Adafruit GFX Library`
-- `Adafruit BusIO` (auto-installs)
 
 ---
 
 ## Firmware
 
-| File | Description |
-|------|-------------|
-| [firmware/quiz_buzzer_v2/quiz_buzzer_v2.ino](firmware/quiz_buzzer_v2/quiz_buzzer_v2.ino) | Full working firmware — ranking, debounce, OLED, buzzer, reset |
+| File | Status |
+|------|--------|
+| [firmware/quiz_buzzer_v2/quiz_buzzer_v2.ino](firmware/quiz_buzzer_v2/quiz_buzzer_v2.ino) | ✅ Working |
+
+**Libraries needed (Arduino Library Manager):**
+- Adafruit GFX Library
+- Adafruit SSD1306
+
+---
+
+## Build Phases
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| 1 | Buttons + OLED + buzzer (Version B) | ✅ Done |
+| 2 | Individual LEDs per player (P1–P6) | 📋 Next |
+| 3 | Large arcade buttons | 📋 Planned |
+| 4 | Perfboard / PCB wiring | 📋 Planned |
+| 5 | Enclosure build | 📋 Planned |
+| 6 | Reaction time display (e.g. `P4: 1st — 0.82 sec`) | 📋 Planned |
+| 7 | Score tracking across rounds — full Quiz Competition System | 📋 Future |
 
 ---
 
@@ -91,19 +106,6 @@ Install via Arduino Library Manager:
 - 🎓 College events & exhibitions
 - 👥 Team building games
 - 🎮 Fun learning system
-
----
-
-## Status
-
-- ✅ Firmware complete
-- ✅ 6-player ranking logic
-- ✅ OLED display output
-- ✅ Debounced button reads
-- ✅ Buzzer on first press only
-- ✅ Double-beep reset confirmation
-- 📋 Optional: colored LEDs per player
-- 📋 Optional: Version A (first press only, no ranking)
 
 ---
 
